@@ -38,13 +38,13 @@ cvQueries = paste0('select File.*, Sample.title from File, Sample
 # set header variables 
 cvShell = '#!/bin/bash'
 cvShell.2 = '#$ -S /bin/bash'
-cvProcessors = '#$ -pe smp 8'
+cvProcessors = '#$ -pe smp 4'
 cvWorkingDir = '#$ -cwd'
 cvJobName = '#$ -N hisat2-array'
 cvStdout = '#$ -j y'
-cvMemoryReserve = '#$ -l h_vmem=19G'
+cvMemoryReserve = '#$ -l h_vmem=5G'
 cvArrayJob = paste0('#$ -t 1-', nrow(dfCounts)/2)
-# using high memory queue with one slot and 19 Gigs of memory
+
 
 # set the directory names
 cvInput = 'input/'
