@@ -133,7 +133,7 @@ sf.sub = c(sf.1, sf.2)
 i = match(colnames(mData), names(sf.sub))
 identical(names(sf.sub[i]), colnames(mData))
 sf.sub = sf.sub[i]
-plot(sf, sf.sub)
+plot(sf, sf.sub, col=c(1,2)[as.numeric(dfSample.2$group2)], xlab='Joint Size Factor', ylab='Batch wise SF')
 mData.norm.2 = sweep(mData, 2, sf.sub, '/')
 identical(colnames(mData.norm.2), as.character(dfSample.2$fReplicates))
 
@@ -225,6 +225,7 @@ plot.dendogram(oDiag.3, fBatch, labels_cex = 0.7)
 # 
 # which(v1 > 0)
 # which(v2 > 0)
+######## modelling of PCA components to assign sources of variance to covariates in the design
 par(mfrow=c(1,1))
 plot(oDiag.4@lData$PCA$sdev)
 plot.PCA(oDiag.4, fBatch)
@@ -235,6 +236,7 @@ library(lme4)
 dfData = data.frame(mPC)
 dfData = stack(dfData)
 str(dfData)
+dfData$values = as.numeric(scale(dfData$values))
 library(lattice)
 densityplot(~ values, data=dfData)
 densityplot(~ values | ind, data=dfData)
@@ -257,16 +259,16 @@ str(dfData)
 fit.lme1 = lmer(values ~ 1  + (1 | Coef.1), data=dfData)
 fit.lme2 = lmer(values ~ 1  + (1 | Coef.1) + (1 | Coef.2), data=dfData)
 fit.lme3 = lmer(values ~ 1  + (1 | Coef.1) + (1 | Coef.3), data=dfData)
-fit.lme4 = lmer(values ~ 1  + (1 | Coef.1) + (1 | Coef.3) + (1 | Coef.1:Coef.3), data=dfData)
+fit.lme4 = lmer(values ~ 1  + (1 | Coef.1) + (1 | Coef.3) + (1 | Coef.4), data=dfData)
 
 anova(fit.lme1, fit.lme2, fit.lme3, fit.lme4)
 
 summary(fit.lme1)
-summary(fit.lme3)
-plot((fitted(fit.lme3)), resid(fit.lme3), pch=20, cex=0.7)
-lines(lowess((fitted(fit.lme3)), resid(fit.lme3)), col=2)
+summary(fit.lme4)
+plot((fitted(fit.lme4)), resid(fit.lme4), pch=20, cex=0.7)
+lines(lowess((fitted(fit.lme4)), resid(fit.lme4)), col=2)
 hist(dfData$values, prob=T)
-lines(density(fitted(fit.lme3)))
+lines(density(fitted(fit.lme4)))
 
 ## fit model with stan with various model sizes
 library(rstan)
@@ -276,6 +278,7 @@ library(rethinking)
 
 stanDso = rstan::stan_model(file='tResponsePartialPooling.stan')
 
+######## models of 3 sizes using stan
 str(dfData)
 m1 = model.matrix(values ~ Coef.1 - 1, data=dfData)
 m2 = model.matrix(values ~ Coef.3 - 1, data=dfData)
@@ -361,8 +364,9 @@ for (i in 1:300){
 }
 
 dim(mDraws.sim)
-plot(density(dfData$values))
-apply(mDraws.sim, 2, function(x) lines(density(x), lwd=0.5, col='grey'))
+plot(density(dfData$values), main='posterior predictive density plots, model 3')
+apply(mDraws.sim, 2, function(x) lines(density(x), lwd=0.5, col='lightgrey'))
+lines(density(dfData$values))
 
 ## plot residuals
 plot(dfData$values - colMeans(l$mu) ~ colMeans(l$mu))
@@ -373,9 +377,14 @@ apply(l$mu[sample(1:5000, 100),], 1, function(x) {
 
 ## plot the original PCA and replicated data
 plot(dfData$values[dfData$ind == 'PC1'], dfData$values[dfData$ind == 'PC2'], 
-     col=c(1,2)[as.numeric(dfData$fTreatment[dfData$ind == 'PC1'])])
+     col=c(1,2)[as.numeric(dfData$fTreatment[dfData$ind == 'PC1'])], main='PCA Components - original and simulated',
+     xlab='PC1', ylab='PC2')
 points(rowMeans(mDraws.sim)[dfData$ind == 'PC1'], rowMeans(mDraws.sim)[dfData$ind == 'PC2'],
        col=c(1,2)[as.numeric(dfData$fTreatment[dfData$ind == 'PC1'])], pch='1')
+
+plot(dfData$values[dfData$ind == 'PC1'], dfData$values[dfData$ind == 'PC2'], 
+     col=c(1,2)[as.numeric(dfData$fTreatment[dfData$ind == 'PC1'])], main='PCA Components - original and model 3',
+     xlab='PC1', ylab='PC2', xlim=c(-3, 3), ylim=c(-2, 2))
 
 apply(mDraws.sim, 2, function(x) {
   points(x[dfData$ind == 'PC1'], x[dfData$ind == 'PC2'],
@@ -391,18 +400,6 @@ dim(mCoef)
 iIntercept = as.numeric(extract(fit.stan.3)$populationMean)
 ## add the intercept to each coefficient, to get the full coefficient
 mCoef = sweep(mCoef, 1, iIntercept, '+')
-
-## function to calculate statistics for differences between coefficients
-getDifference = function(ivData, ivBaseline){
-  stopifnot(length(ivData) == length(ivBaseline))
-  # get the difference vector
-  d = ivData - ivBaseline
-  # get the z value
-  z = mean(d)/sd(d)
-  # get 2 sided p-value
-  p = pnorm(-abs(mean(d)/sd(d)))*2
-  return(list(z=z, p=p))
-}
 
 ## split the data into the comparisons required
 d = data.frame(cols=1:ncol(mCoef), mods=c(levels(dfData$Coef.1), levels(dfData$Coef.3), levels(dfData$Coef.4)))
@@ -431,84 +428,16 @@ iWT.PC1 = (mCoef[,3])
 tapply(dfData$values, dfData$Coef.3, mean)
 mean(mCoef[,5])
 mean(mCoef[,7])
-
-
-
-d$split = factor(d$`2`)
-str(d)
-d = d[1:4, c(1, 2, 5, 7)]
-d$fBatch = d$`3`
-d = droplevels.data.frame(d)
-str(d)
-## get a p-value for each comparison
-l = tapply(d$cols, d$split, FUN = function(x, base='WT', deflection='miR-142 KO') {
-  c = x
-  names(c) = as.character(d$fBatch[c])
-  dif = getDifference(ivData = mCoef[,c[deflection]], ivBaseline = mCoef[,c[base]])
-  r = data.frame(ind= as.character(d$ind[c[base]]), coef.base=mean(mCoef[,c[base]]), 
-                 coef.deflection=mean(mCoef[,c[deflection]]), zscore=dif$z, pvalue=dif$p)
-  r$difference = r$coef.deflection - r$coef.base
-  #return(format(r, digi=3))
-  return(r)
-})
-
 ##########################################
 
-
-
-
-
-
-m = cbind(extract(fit.stan)$sigmaRan, extract(fit.stan)$sigmaPop) 
+m = cbind(extract(fit.stan.3)$sigmaRan, extract(fit.stan.3)$sigmaPop) 
 dim(m)
 m = log(m)
-colnames(m) = c('Treatment', 'Time', 'Residual')
+colnames(m) = c('Treatment', 'Batch', 'TrBt', 'Residual')
 pairs(m, pch=20, cex=0.5, col='grey')
 
-df = stack(data.frame(m[,-3]))
+df = stack(data.frame(m[,-4]))
 histogram(~ values | ind, data=df, xlab='Log SD')
-
-
-hist(dfData$values, prob=T)
-plot(density(dfData$values))
-## use appropriate model name e.g. fit.stan or fit.stan.2 to do model checks, in this case
-# fit.stan.2 is a better model.
-mFitted = extract(fit.stan)$mu
-
-apply(mFitted[sample(1:nrow(mFitted), size = 100), ], 1, function(x) lines(density(x)))
-
-# quick residual check
-m = colMeans(mFitted)
-r = dfData$values - m
-plot(m, r, pch=20)
-lines(lowess(m, r), col=2)
-
-### plot the posterior predictive values
-m = extract(fit.stan, c('mu', 'nu', 'sigmaPop'))
-dim(m$mu)
-i = sample(1:5000, 1000)
-muSample = m$mu[i,]
-nuSample = m$nu[i]
-sigSample = m$sigmaPop[i]
-
-## t sampling functions
-dt_ls = function(x, df, mu, a) 1/a * dt((x - mu)/a, df)
-rt_ls <- function(n, df, mu, a) rt(n,df)*a + mu
-
-## use point-wise predictive approach to sample a new value from this data
-ivResp = dfData$values
-mDraws = matrix(NA, nrow = length(ivResp), ncol=1000)
-
-for (i in 1:ncol(mDraws)){
-  mDraws[,i] = rt_ls(length(ivResp), nuSample[i], muSample[i,], sigSample[i])
-}
-
-yresp = density(ivResp)
-plot(yresp, xlab='', main='Fitted distribution', ylab='density', lwd=2)#, ylim=c(0, 1))
-temp = apply(mDraws, 2, function(x) {x = density(x)
-#x$y = x$y/max(x$y)
-lines(x, col='red', lwd=0.6)
-})
 
 ## calculate bayesian p-value for this test statistic
 getPValue = function(Trep, Tobs){
@@ -537,25 +466,26 @@ T1_mean = function(Y){
 } 
 
 ## mChecks
+ivResp = dfData$values
 mChecks = matrix(NA, nrow=4, ncol=1)
 rownames(mChecks) = c('Variance', 'Max', 'Min', 'Mean')
 colnames(mChecks) = c('model 1')
 
-t1 = apply(mDraws, 2, T1_var)
+t1 = apply(mDraws.sim, 2, T1_var)
 mChecks['Variance', 1] = getPValue(t1, var(ivResp))
 
 ## testing for outlier detection i.e. the minimum value show in the histograms earlier
-t1 = apply(mDraws, 2, T1_min)
+t1 = apply(mDraws.sim, 2, T1_min)
 t2 = T1_min(ivResp)
 mChecks['Min',1] = getPValue(t1, t2)
 
 ## maximum value
-t1 = apply(mDraws, 2, T1_max)
+t1 = apply(mDraws.sim, 2, T1_max)
 t2 = T1_max(ivResp)
 mChecks['Max', 1] = getPValue(t1, t2)
 
 ## mean value
-t1 = apply(mDraws, 2, T1_mean)
+t1 = apply(mDraws.sim, 2, T1_mean)
 t2 = T1_mean(ivResp)
 mChecks['Mean', 1] = getPValue(t1, t2)
 
