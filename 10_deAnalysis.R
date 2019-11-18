@@ -88,11 +88,11 @@ identical(colnames(mData.norm), as.character(dfSample.2$fReplicates))
 ## delete sample section after testing
 mData.norm = round(mData.norm, 0)
 
-set.seed(123)
-i = sample(1:nrow(mData.norm), 100, replace = F)
-dfData = data.frame(t(mData.norm[i,]))
+# set.seed(123)
+# i = sample(1:nrow(mData.norm), 100, replace = F)
+# dfData = data.frame(t(mData.norm[i,]))
 
-#dfData = data.frame(t(mData.norm))
+dfData = data.frame(t(mData.norm))
 dfData = stack(dfData)
 
 ## create covariates for modelling
@@ -108,14 +108,14 @@ dfData = droplevels.data.frame(dfData)
 dfData = dfData[order(dfData$Coef), ]
 str(dfData)
 
-# setup the model
-library(lme4)
-fit.lme1 = glmer.nb(values ~ 1 + (1 | Coef), data=dfData)
-summary(fit.lme1)
-ran = ranef(fit.lme1, condVar=F)
-
-plot(log(fitted(fit.lme1)), resid(fit.lme1), pch=20, cex=0.7)
-lines(lowess(log(fitted(fit.lme1)), resid(fit.lme1)), col=2)
+# # setup the model
+# library(lme4)
+# fit.lme1 = glmer.nb(values ~ 1 + (1 | Coef), data=dfData)
+# summary(fit.lme1)
+# ran = ranef(fit.lme1, condVar=F)
+# 
+# plot(log(fitted(fit.lme1)), resid(fit.lme1), pch=20, cex=0.7)
+# lines(lowess(log(fitted(fit.lme1)), resid(fit.lme1)), col=2)
 
 ## setup the stan model
 library(rstan)
@@ -152,19 +152,19 @@ lStanData = list(Ntotal=nrow(dfData),
                  #gammaShape=l$shape, gammaRate=l$rate,
                  intercept = mean(log(dfData$values+0.5)), intercept_sd= sd(log(dfData$values+0.5))*3)
 
-ptm = proc.time()
-
-fit.stan = sampling(stanDso, data=lStanData, iter=1000, chains=4,
-                    pars=c('sigmaRan1',
-                           'phi',
-                           #'mu',
-                           'rGroupsJitter1'
-                           #'betas',
-                           #'phi_scaled'
-                           ),
-                    cores=4, control=list(adapt_delta=0.99, max_treedepth = 11))#, init=initf)
-save(fit.stan, file='results/fit.stan.nb_25Sep.rds')
-ptm.end = proc.time()
+#' ptm = proc.time()
+#' 
+#' fit.stan = sampling(stanDso, data=lStanData, iter=1500, chains=4,
+#'                     pars=c('sigmaRan1',
+#'                            'phi',
+#'                            #'mu',
+#'                            'rGroupsJitter1'
+#'                            #'betas',
+#'                            #'phi_scaled'
+#'                            ),
+#'                     cores=4, control=list(adapt_delta=0.99, max_treedepth = 11))#, init=initf)
+#' save(fit.stan, file='results/fit.stan.nb_13Nov.rds')
+#' ptm.end = proc.time()
 print(fit.stan, c('sigmaRan1'), digits=3)
 print(fit.stan, c('phi'), digits=3)
 print(fit.stan, c('rGroupsJitter1'))
@@ -210,7 +210,7 @@ levels(d$fBatch)
 ## repeat this for each comparison
 
 ## get a p-value for each comparison
-l = tapply(d$cols, d$split, FUN = function(x, base='WT:2', deflection='WT:1') {
+l = tapply(d$cols, d$split, FUN = function(x, base='WT:2', deflection='miR-142 KO:2') {
   c = x
   names(c) = as.character(d$fBatch[c])
   dif = getDifference(ivData = mCoef[,c[deflection]], ivBaseline = mCoef[,c[base]])
@@ -236,39 +236,32 @@ df = df[i,]
 dfResults$SYMBOL = df$SYMBOL
 identical(dfResults$ind, df$ENTREZID)
 ## produce the plots 
-f_plotVolcano(dfResults, 'D:D3 vs ND:D3')#, fc.lim=c(-2.5, 2.5))
-f_plotVolcano(dfResults, 'D:D3 vs ND:D3', fc.lim=range(dfResults$logFC))
+f_plotVolcano(dfResults, 'KO:2 vs WT:2')#, fc.lim=c(-2.5, 2.5))
+f_plotVolcano(dfResults, 'KO:2 vs WT:2', fc.lim=range(dfResults$logFC))
 
 m = tapply(dfData$values, dfData$ind, mean)
 i = match(rownames(dfResults), names(m))
 m = m[i]
 identical(names(m), rownames(dfResults))
-plotMeanFC(log(m), dfResults, 0.01, 'D:D3 vs ND:D3')
+plotMeanFC(log(m), dfResults, 0.01, 'KO:2 vs WT:2')
 table(dfResults$adj.P.Val < 0.01)
 ## save the results 
-write.csv(dfResults, file='results/DEAnalysisD:D3VsND:D3.xls')
+write.csv(dfResults, file='results/DEAnalysisKO:2VsWT:2.xls')
 
 ######### do a comparison with deseq2
-dfDesign = data.frame(Treatment = factor(dfSample.2$group1, levels = c('ND', 'D')):factor(dfSample.2$group3)
-                      , row.names=colnames(mData))
+str(dfSample.2)
+dfDesign = data.frame(Treatment = factor(dfSample.2$group1, levels = c('WT', 'miR-142 KO'))[dfSample.2$group2 == '2'],
+                      row.names=colnames(mData)[dfSample.2$group2 == '2'])
 
-oDseq = DESeqDataSetFromMatrix(mData, dfDesign, design = ~ Treatment)
+oDseq = DESeqDataSetFromMatrix(mData[,rownames(dfDesign)], dfDesign, design = ~ Treatment)
 oDseq = DESeq(oDseq)
 
-## deseq error
-# estimating dispersions
-# Error in checkForExperimentalReplicates(object, modelMatrix) : 
-#   
-#   The design matrix has the same number of samples and coefficients to fit,
-# so estimation of dispersion is not possible. Treating samples
-# as replicates was deprecated in v1.20 and no longer supported since v1.22.
-
-# plotDispEsts(oDseq)
-# oRes = results(oDseq, contrast=c('Treatment', 'D:WT', 'ND:WT'))
-# plotMA(oRes)
-# temp = as.data.frame(oRes)
-# i = match((dfResults$ind), rownames(temp))
-# temp = temp[i,]
-# identical((dfResults$ind), rownames(temp))
-# plot(dfResults$logFC, temp$log2FoldChange, pch=20)
-# table(oRes$padj < 0.01)
+plotDispEsts(oDseq)
+oRes = results(oDseq)
+plotMA(oRes)
+temp = as.data.frame(oRes)
+i = match((dfResults$ind), rownames(temp))
+temp = temp[i,]
+identical((dfResults$ind), rownames(temp))
+plot(dfResults$logFC, temp$log2FoldChange, pch=20)
+table(oRes$padj < 0.01)
